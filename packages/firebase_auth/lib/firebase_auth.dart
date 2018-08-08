@@ -121,6 +121,9 @@ class FirebaseAuth {
   final Map<int, StreamController<FirebaseUser>> _authStateChangedControllers =
       <int, StreamController<FirebaseUser>>{};
 
+  final Map<int, StreamController<FirebaseUser>> _idTokenChangedControllers =
+      <int, StreamController<FirebaseUser>>{};
+
   static int nextHandle = 0;
   final Map<int, Map<String, dynamic>> _phoneAuthCallbacks =
       <int, Map<String, dynamic>>{};
@@ -151,6 +154,29 @@ class FirebaseAuth {
         await channel.invokeMethod(
             "stopListeningAuthState", <String, int>{"id": handle});
         _authStateChangedControllers.remove(handle);
+      });
+    });
+
+    return controller.stream;
+  }
+
+  /// Receive [FirebaseUser] each time the user signIn or signOut
+  Stream<FirebaseUser> get onIdTokenChanged {
+    Future<int> _handle;
+
+    StreamController<FirebaseUser> controller;
+    controller = new StreamController<FirebaseUser>.broadcast(onListen: () {
+      _handle = channel
+          .invokeMethod('startListeningIdToken')
+          .then<int>((dynamic v) => v);
+      _handle.then((int handle) {
+        _idTokenChangedControllers[handle] = controller;
+      });
+    }, onCancel: () {
+      _handle.then((int handle) async {
+        await channel.invokeMethod(
+            "stopListeningIdToken", <String, int>{"id": handle});
+        _idTokenChangedControllers.remove(handle);
       });
     });
 
@@ -443,6 +469,9 @@ class FirebaseAuth {
       case 'onAuthStateChanged':
         _onAuthStageChangedHandler(call);
         break;
+      case 'onIdTokenChanged':
+        _onIdTokenChangedHandler(call);
+        break;
       case 'phoneVerificationCompleted':
         final int handle = call.arguments['handle'];
         final PhoneVerificationCompleted verificationCompleted =
@@ -488,5 +517,14 @@ class FirebaseAuth {
     final FirebaseUser currentUser =
         data != null ? new FirebaseUser._(data) : null;
     _authStateChangedControllers[id].add(currentUser);
+  }
+
+  void _onIdTokenChangedHandler(MethodCall call) {
+    final Map<dynamic, dynamic> data = call.arguments["user"];
+    final int id = call.arguments["id"];
+
+    final FirebaseUser currentUser =
+        data != null ? new FirebaseUser._(data) : null;
+    _idTokenChangedControllers[id].add(currentUser);
   }
 }

@@ -31,6 +31,7 @@ NSDictionary *toDictionary(id<FIRUserInfo> userInfo) {
 
 @interface FLTFirebaseAuthPlugin ()
 @property(nonatomic, retain) NSMutableDictionary *authStateChangeListeners;
+@property(nonatomic, retain) NSMutableDictionary *idTokenChangeListeners;
 @property(nonatomic, retain) FlutterMethodChannel *channel;
 @end
 
@@ -46,6 +47,7 @@ int nextHandle = 0;
   FLTFirebaseAuthPlugin *instance = [[FLTFirebaseAuthPlugin alloc] init];
   instance.channel = channel;
   instance.authStateChangeListeners = [[NSMutableDictionary alloc] init];
+  instance.idTokenChangeListeners = [[NSMutableDictionary alloc] init];
   [registrar addMethodCallDelegate:instance channel:channel];
 }
 
@@ -222,6 +224,36 @@ int nextHandle = 0;
     if (listener) {
       [[FIRAuth auth] removeAuthStateDidChangeListener:self.authStateChangeListeners];
       [self.authStateChangeListeners removeObjectForKey:identifier];
+      result(nil);
+    } else {
+      result([FlutterError
+          errorWithCode:@"not_found"
+                message:[NSString stringWithFormat:@"Listener with identifier '%d' not found.",
+                                                   identifier.intValue]
+                details:nil]);
+    }
+  } else if ([@"startListeningIdToken" isEqualToString:call.method]) {
+    NSNumber *identifier = [NSNumber numberWithInteger:nextHandle++];
+
+    FIRIDTokenDidChangeListenerHandle listener = [[FIRAuth auth]
+        addIDTokenDidChangeListener:^(FIRAuth *_Nonnull auth, FIRUser *_Nullable user) {
+          NSMutableDictionary *response = [[NSMutableDictionary alloc] init];
+          response[@"id"] = identifier;
+          if (user) {
+            response[@"user"] = [self dictionaryFromUser:user];
+          }
+          [self.channel invokeMethod:@"onIdTokenChanged" arguments:response];
+        }];
+    [self.idTokenChangeListeners setObject:listener forKey:identifier];
+    result(identifier);
+  } else if ([@"stopListeningIdToken" isEqualToString:call.method]) {
+    NSNumber *identifier =
+        [NSNumber numberWithInteger:[call.arguments[@"id"] unsignedIntegerValue]];
+
+    FIRIDTokenDidChangeListenerHandle listener = self.idTokenChangeListeners[identifier];
+    if (listener) {
+      [[FIRAuth auth] removeIDTokenDidChangeListener:self.idTokenChangeListeners];
+      [self.idTokenChangeListeners removeObjectForKey:identifier];
       result(nil);
     } else {
       result([FlutterError

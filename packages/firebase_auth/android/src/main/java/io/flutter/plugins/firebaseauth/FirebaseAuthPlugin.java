@@ -32,6 +32,8 @@ public class FirebaseAuthPlugin implements MethodCallHandler {
   private final FirebaseAuth firebaseAuth;
   private final SparseArray<FirebaseAuth.AuthStateListener> authStateListeners =
       new SparseArray<>();
+      private final SparseArray<FirebaseAuth.IdTokenListener> idTokenListeners =
+      new SparseArray<>();
   private final SparseArray<PhoneAuthProvider.ForceResendingToken> forceResendingTokens =
       new SparseArray<>();
   private final MethodChannel channel;
@@ -122,6 +124,12 @@ public class FirebaseAuthPlugin implements MethodCallHandler {
         break;
       case "stopListeningAuthState":
         handleStopListeningAuthState(call, result);
+        break;
+        case "startListeningIdToken":
+        handleStartListeningIdToken(call, result);
+        break;
+      case "stopListeningIdToken":
+        handleStopListeningIdToken(call, result);
         break;
       case "verifyPhoneNumber":
         handleVerifyPhoneNumber(call, result);
@@ -505,6 +513,45 @@ public class FirebaseAuthPlugin implements MethodCallHandler {
     if (listener != null) {
       FirebaseAuth.getInstance().removeAuthStateListener(listener);
       authStateListeners.remove(id);
+      result.success(null);
+    } else {
+      result.error(
+          ERROR_REASON_EXCEPTION,
+          String.format("Listener with identifier '%d' not found.", id),
+          null);
+    }
+  }
+
+  private void handleStartListeningIdToken(MethodCall call, final Result result) {
+    final int handle = nextHandle++;
+    FirebaseAuth.IdTokenListener listener =
+        new FirebaseAuth.IdTokenListener() {
+          @Override
+          public void onIdTokenChanged(@NonNull FirebaseAuth firebaseAuth) {
+            FirebaseUser user = firebaseAuth.getCurrentUser();
+            ImmutableMap<String, Object> userMap = mapFromUser(user);
+            ImmutableMap.Builder<String, Object> builder =
+                ImmutableMap.<String, Object>builder().put("id", handle);
+
+            if (userMap != null) {
+              builder.put("user", userMap);
+            }
+            channel.invokeMethod("onIdTokenChanged", builder.build());
+          }
+        };
+    FirebaseAuth.getInstance().addIdTokenListener(listener);
+    idTokenListeners.append(handle, listener);
+    result.success(handle);
+  }
+
+  private void handleStopListeningIdToken(MethodCall call, final Result result) {
+    Map<String, Integer> arguments = call.arguments();
+    Integer id = arguments.get("id");
+
+    FirebaseAuth.IdTokenListener listener = idTokenListeners.get(id);
+    if (listener != null) {
+      FirebaseAuth.getInstance().removeIdTokenListener(listener);
+      idTokenListeners.remove(id);
       result.success(null);
     } else {
       result.error(
